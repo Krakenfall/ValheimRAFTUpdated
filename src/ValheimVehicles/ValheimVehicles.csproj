@@ -51,6 +51,29 @@
         <ProjectReference Include="..\DynamicLocations\DynamicLocations.csproj"/>
         <ProjectReference Include="..\ZdoWatcher\ZdoWatcher.csproj"/>
     </ItemGroup>
+
+    <!-- Patches for community mods. Scoped to this project only: these mods declare types in
+         the global namespace, so referencing them solution-wide causes collisions. -->
+    <ItemGroup Label="Community Mod Patches">
+        <Publicize Include="PlanBuild"/>
+        <Reference Include="PlanBuild">
+            <SpecificVersion>False</SpecificVersion>
+            <HintPath>$(SolutionDir)libs\PlanBuild.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Publicize Include="Advize_PlantEasily"/>
+        <Reference Include="Advize_PlantEasily">
+            <SpecificVersion>False</SpecificVersion>
+            <HintPath>$(SolutionDir)libs\Advize_PlantEasily.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+        <Publicize Include="ComfyGizmo"/>
+        <Reference Include="ComfyGizmo">
+            <SpecificVersion>False</SpecificVersion>
+            <HintPath>$(SolutionDir)libs\ComfyGizmo.dll</HintPath>
+            <Private>False</Private>
+        </Reference>
+    </ItemGroup>
     <ItemGroup>
         <PackageReference Update="Krafs.Publicizer" Version="2.3.0">
             <PrivateAssets>all</PrivateAssets>
