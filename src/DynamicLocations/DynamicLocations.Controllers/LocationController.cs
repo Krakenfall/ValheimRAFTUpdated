@@ -527,7 +527,8 @@ public class LocationController : MonoBehaviour
 
   public static void SaveWorldData()
   {
-    var WorldSavePath = World.GetWorldSavePath();
+    var WorldSavePath =
+      SaveSystem.GetSavePath(SaveDataType.World, FileHelpers.FileSource.Local);
     var fileName = $"{Game.instance.m_devWorldName}_mod_dynamic_locations.json";
 
     // File.WriteAllText(

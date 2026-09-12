@@ -1,5 +1,4 @@
 using BepInEx.Configuration;
-using ComfyLib;
 using ValheimVehicles.Propulsion.Sail;
 using ValheimVehicles.Components;
 using ValheimVehicles.Controllers;

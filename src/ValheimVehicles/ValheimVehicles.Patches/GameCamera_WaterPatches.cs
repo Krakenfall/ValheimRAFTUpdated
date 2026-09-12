@@ -38,7 +38,7 @@ public class GameCamera_WaterPatches
     var playerPos = GameCamera.instance.m_playerPos;
     var currentZone =
       ZoneSystem.GetZone(new Vector2(playerPos.x, playerPos.z));
-    return currentZone;
+    return currentZone.ToVector2i();
   }
 
   public static void UpdateFogSettings()
