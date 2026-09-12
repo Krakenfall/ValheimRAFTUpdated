@@ -50,12 +50,13 @@ This guide aims to get you setup in the repo and able to build the code.
 Add the following data.
 
 ```xml
+<Project>
     <!-- basically, this is needed to run valheim through the configuration -->
     <PropertyGroup Label="ValheimPaths">
         <!-- use GamePath property if the game is not located in the steam root folder -->
-        <GamePath>%Steam_Library_Path%\steamapps\common\Valheim</GamePath>
+        <GamePath>$(Steam_Library_Path)\steamapps\common\Valheim</GamePath>
         <ValheimServerPath>$(GamePath) dedicated server</ValheimServerPath>
-        <R2ModManPath>%APPDATA%\r2modmanPlus-local</R2ModManPath>
+        <R2ModManPath>$(APPDATA)\r2modmanPlus-local</R2ModManPath>
         <R2ModManProfileName>profile-name</R2ModManProfileName>
         <R2ModManProfile>Valheim\profiles\$(R2ModManProfileName)</R2ModManProfile>
         <PluginDeployTarget>BepInEx\plugins\zolantris-ValheimRAFT</PluginDeployTarget>
@@ -65,7 +66,28 @@ Add the following data.
         <BepInExPath>$(R2ModManPath)\$(R2ModManProfile)\BepInEx\core</BepInExPath>
         <ManagedDataPath>$(GamePath)\valheim_Data\Managed</ManagedDataPath>
     </PropertyGroup>
+</Project>
 ```
+
+Or if you installed BepInEx in the game path:
+
+```xml
+<Project>
+    <!-- basically, this is needed to run valheim through the configuration -->
+    <PropertyGroup Label="ValheimPaths">
+        <!-- use GamePath property if the game is not located in the steam root folder -->
+        <GamePath>$(Steam_Library_Path)\steamapps\common\Valheim</GamePath>
+        <ValheimServerPath>$(GamePath) dedicated server</ValheimServerPath>
+        <PluginDeployTarget>BepInEx\plugins\zolantris-ValheimRAFT</PluginDeployTarget>
+        <PluginDeployPath>$(GamePath)\$(PluginDeployTarget)</PluginDeployPath>
+    </PropertyGroup>
+    <PropertyGroup Label="LocalPaths">
+        <BepInExPath>$(GamePath)\BepInEx\core</BepInExPath>
+        <ManagedDataPath>$(GamePath)\valheim_Data\Managed</ManagedDataPath>
+    </PropertyGroup>
+</Project>
+```
+
 
 For enabling automatic converting valheim into a debug variant. Example is of
 Unity 2022.3.50.f1
