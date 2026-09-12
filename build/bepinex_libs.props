@@ -1,6 +1,7 @@
 <Project>
     <PropertyGroup Condition="!Exists('$(SolutionDir)build\.props')">
-        <BepInExPath>$(SolutionDir)libs</BepInExPath>
+        <BepInExPath>$(GamePath)\BepInEx\core</BepInExPath>
+        <!-- <BepInExPath>$(SolutionDir)libs</BepInExPath> -->
         <ManagedDataPath>$(SolutionDir)libs</ManagedDataPath>
     </PropertyGroup>
     <ItemGroup Label="BepInEx">
