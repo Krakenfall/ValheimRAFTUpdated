@@ -1,6 +1,7 @@
 <Project>
     <PropertyGroup Condition="!Exists('$(SolutionDir)build\.props')">
-        <BepInExPath>$(SolutionDir)libs</BepInExPath>
+        <BepInExPath>$(GamePath)\BepInEx\core</BepInExPath>
+        <!--$(SolutionDir)libs</BepInExPath>-->
         <ManagedDataPath>$(SolutionDir)libs</ManagedDataPath>
     </PropertyGroup>
 
@@ -117,31 +118,16 @@
     <ItemGroup Label="required-mods">
         <Reference Include="Jotunn">
             <SpecificVersion>False</SpecificVersion>
-            <HintPath>$(SolutionDir)libs\Jotunn.dll</HintPath>
+            <HintPath>$(GamePath)\BepInEx\plugins\Jotunn\Jotunn.dll</HintPath>
+            <!-- <HintPath>$(SolutionDir)libs\Jotunn.dll</HintPath> -->
             <Private>False</Private>
         </Reference>
     </ItemGroup>
 
-    <!-- Patches for community mods -->
-    <!-- Todo this may be moved direcly into repos that require this mod -->
-    <ItemGroup Label="Community Mod Patches">
-        <Publicize Include="PlanBuild"/>
-        <Reference Include="PlanBuild">
-            <SpecificVersion>False</SpecificVersion>
-            <HintPath>$(SolutionDir)libs\PlanBuild.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-        <Publicize Include="Advize_PlantEasily"/>
-        <Reference Include="Advize_PlantEasily">
-            <SpecificVersion>False</SpecificVersion>
-            <HintPath>$(SolutionDir)libs\Advize_PlantEasily.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-        <Publicize Include="ComfyGizmo"/>
-        <Reference Include="ComfyGizmo">
-            <SpecificVersion>False</SpecificVersion>
-            <HintPath>$(SolutionDir)libs\ComfyGizmo.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-    </ItemGroup>
+    <!--
+      Community mod patch references now live in ValheimVehicles.csproj - the only project
+      that compiles the patch sources. Importing them for every project leaked these mods'
+      global-namespace types everywhere; Advize_PlantEasily declares its own public
+      ConfigurationManagerAttributes, which collides with Jotunn's (CS0433).
+    -->
 </Project>
