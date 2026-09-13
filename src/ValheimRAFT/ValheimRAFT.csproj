@@ -44,7 +44,9 @@
     </ItemGroup>
     <ItemGroup>
         <Content Include=".gitignore"/>
-        <Content Include="Assets\Translations\English\valheimraft.json"/>
+        <Content Include="Assets\**\*">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </Content>
         <Content Include="docs\ValheimRAFT_AutoDoc.md"/>
         <Content Include="docs\ConfigOutput.md"/>
         <Content Include="src\ValheimRAFT\README.md"/>
