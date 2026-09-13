@@ -48,7 +48,9 @@
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </Content>
         <Content Include="docs\ValheimRAFT_AutoDoc.md"/>
-        <Content Include="docs\ConfigOutput.md"/>
+        <Content Include="docs\**\*">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </Content>
         <Content Include="src\ValheimRAFT\README.md"/>
         <Content Include="Thunderstore\icon.png"/>
         <Content Include="Thunderstore\manifest.json"/>
