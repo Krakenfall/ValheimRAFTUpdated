@@ -3314,22 +3314,24 @@
           }
         }
 
-        // custom masts do not have sailcloth or sail objects yet.
-        if (mast.m_sailCloth)
+        // custom masts do not have sail objects yet. Vanilla masts have no sailcloth
+        // since Valheim 1.0 swapped UnityEngine.Cloth for MagicaCloth, so the cloth
+        // toggling is optional but the scaling still has to run.
+        if (mast.m_sailObject)
         {
           if (mast.m_allowSailShrinking)
           {
-            if (mast.m_sailObject.transform.localScale !=
+            if (mast.m_sailCloth && mast.m_sailObject.transform.localScale !=
                 m_sailObject.transform.localScale)
               mast.m_sailCloth.enabled = false;
             mast.m_sailObject.transform.localScale =
               m_sailObject.transform.localScale;
-            mast.m_sailCloth.enabled = true;
+            if (mast.m_sailCloth) mast.m_sailCloth.enabled = true;
           }
           else
           {
             mast.m_sailObject.transform.localScale = Vector3.one;
-            mast.m_sailCloth.enabled = !mast.m_disableCloth;
+            if (mast.m_sailCloth) mast.m_sailCloth.enabled = !mast.m_disableCloth;
           }
         }
       }

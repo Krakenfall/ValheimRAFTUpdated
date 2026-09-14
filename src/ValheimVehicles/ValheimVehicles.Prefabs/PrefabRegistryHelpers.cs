@@ -849,6 +849,46 @@ public abstract class PrefabRegistryHelpers
     }
   }
 
+  /// <summary>
+  /// The vanilla mast sail object. Valheim 1.0 (Unity 6) renamed it from "Sail" to
+  /// "Karve_Sail" and swapped UnityEngine.Cloth for MagicaCloth, so a hardcoded
+  /// transform.Find("Sail") now returns null (raft/karve) or an empty leftover
+  /// object (vikingship).
+  /// </summary>
+  public const string VanillaSailObjectName = "Karve_Sail";
+
+  /// <summary>
+  /// Resolves the sail object under a vanilla mast across Valheim versions.
+  /// Prefers the current "Karve_Sail" node, falls back to the pre-1.0 "Sail" node.
+  /// Nodes without a renderer are skipped so leftover empty placeholders are ignored.
+  /// </summary>
+  public static GameObject? FindVanillaMastSailObject(GameObject mast)
+  {
+    var sail = FindSailNamed(mast, VanillaSailObjectName) ??
+               FindSailNamed(mast, "Sail");
+
+    if (sail == null)
+      Logger.LogWarning(
+        $"Could not resolve a sail object under mast <{mast.name}>. Sail shrinking and sail materials will be unavailable for this mast.");
+
+    return sail;
+  }
+
+  private static GameObject? FindSailNamed(GameObject mast, string name)
+  {
+    // includeInactive so masts cloned into Jotunn's inactive prefab container still resolve.
+    foreach (var child in mast.GetComponentsInChildren<Transform>(true))
+    {
+      if (child.name != name) continue;
+      if (!child.gameObject.activeSelf) continue;
+      // an actual sail always renders something, the leftovers do not.
+      if (child.GetComponentInChildren<SkinnedMeshRenderer>(true) == null) continue;
+      return child.gameObject;
+    }
+
+    return null;
+  }
+
   public static void FixRopes(GameObject r)
   {
     var ropes = r.GetComponentsInChildren<LineAttach>();

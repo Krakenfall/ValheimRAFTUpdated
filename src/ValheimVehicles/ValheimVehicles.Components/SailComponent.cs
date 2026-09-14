@@ -213,20 +213,18 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
 
     var sailsGroup = CustomTextureGroup.Get("Sails");
 
-    sailsGroup.AddTexture(new CustomTexture
+    AddSailMaterialToTextureGroup(sailsGroup, drakkalMaterial);
+    AddSailMaterialToTextureGroup(sailsGroup, vikingMaterial);
+    AddSailMaterialToTextureGroup(sailsGroup, raftShipSailMaterial);
+  }
+
+  private static void AddSailMaterialToTextureGroup(CustomTextureGroup? group, Material? material)
+  {
+    if (group == null || material == null) return;
+    group.AddTexture(new CustomTexture
     {
-      Texture = drakkalMaterial.GetTexture(MainTex),
-      Normal = drakkalMaterial.GetTexture(BumpMap)
-    });
-    sailsGroup.AddTexture(new CustomTexture
-    {
-      Texture = vikingMaterial.GetTexture(MainTex),
-      Normal = vikingMaterial.GetTexture(BumpMap)
-    });
-    sailsGroup.AddTexture(new CustomTexture
-    {
-      Texture = raftShipSailMaterial.GetTexture(MainTex),
-      Normal = raftShipSailMaterial.GetTexture(BumpMap)
+      Texture = material.GetTexture(MainTex),
+      Normal = material.GetTexture(BumpMap)
     });
   }
 
@@ -270,22 +268,34 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
     LoadZDO();
   }
 
-  public static Material OverrideMaterial_VikingShipSail()
+  public static Material? OverrideMaterial_VikingShipSail()
   {
-    return LoadValheimAssets.vikingShipPrefab.transform
-      .Find("ship/visual/Mast/Sail").GetComponentInChildren<SkinnedMeshRenderer>().material;
+    return GetVanillaMastSailMaterial(LoadValheimAssets.vikingShipPrefab.transform
+      .Find("ship/visual/Mast"));
   }
 
-  public static Material OverrideMaterial_DrakkalShipSail()
+  public static Material? OverrideMaterial_DrakkalShipSail()
   {
-    return LoadValheimAssets.drakkarPrefab.transform
-      .Find("ship/visual/Mast/Sail").GetComponentInChildren<SkinnedMeshRenderer>().material;
+    return GetVanillaMastSailMaterial(LoadValheimAssets.drakkarPrefab.transform
+      .Find("ship/visual/Mast"));
   }
 
-  public static Material OverrideMaterial_RaftShipSail()
+  public static Material? OverrideMaterial_RaftShipSail()
   {
-    return LoadValheimAssets.raftMast.transform
-      .Find("Sail").GetComponentInChildren<SkinnedMeshRenderer>().material;
+    return GetVanillaMastSailMaterial(LoadValheimAssets.raftMast.transform);
+  }
+
+  /// <summary>
+  /// The sail object moved/renamed in Valheim 1.0, so resolve it the same way the mast
+  /// prefabs do instead of walking a hardcoded path.
+  /// </summary>
+  private static Material? GetVanillaMastSailMaterial(Transform? mast)
+  {
+    if (mast == null) return null;
+    var sailObject = PrefabRegistryHelpers.FindVanillaMastSailObject(mast.gameObject);
+    if (sailObject == null) return null;
+    var renderer = sailObject.GetComponentInChildren<SkinnedMeshRenderer>(true);
+    return renderer == null ? null : renderer.sharedMaterial;
   }
 
   public void FixedUpdate()
@@ -624,12 +634,13 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
     {
       case MaterialVariant.Custom:
         return customMaterial;
+      // the vanilla sail materials are unavailable if the game's sail hierarchy changes again.
       case MaterialVariant.Karve:
-        return OverrideMaterial_VikingShipSail();
+        return OverrideMaterial_VikingShipSail() ?? customMaterial;
       case MaterialVariant.Drakkal:
-        return OverrideMaterial_DrakkalShipSail();
+        return OverrideMaterial_DrakkalShipSail() ?? customMaterial;
       case MaterialVariant.Raft:
-        return OverrideMaterial_RaftShipSail();
+        return OverrideMaterial_RaftShipSail() ?? customMaterial;
       default:
         return m_mesh.material;
     }
