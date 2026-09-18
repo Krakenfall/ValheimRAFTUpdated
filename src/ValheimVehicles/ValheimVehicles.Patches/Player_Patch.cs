@@ -275,6 +275,11 @@
     /// <returns></returns>
     public static bool CanHitPiece(Collider collider)
     {
+      // Characters standing on a vehicle are parented to the pieces container, so a
+      // GetComponentInParent<IPieceController> would match them too. Never treat a
+      // character as a buildable surface.
+      if (collider.GetComponentInParent<Character>() != null) return false;
+
       var genericPieceController = collider.GetComponentInParent<IPieceController>();
 
       if (genericPieceController == null) return false;
@@ -298,7 +303,55 @@
     }
 
 
-    public static void HandleGameObjectRayCast(Transform? vehicleTransform,
+    /// <summary>
+    /// Re-expresses a raycast hit from the pose the body was last *simulated* at into the
+    /// pose that same body is currently *rendered* at.
+    ///
+    /// Physics queries always run against the collider poses inside PhysX, which are the
+    /// poses from the end of the last physics step. When a Rigidbody is interpolated, its
+    /// Transform is deliberately held behind that pose for rendering
+    /// (see <see cref="Rigidbody.interpolation"/>), so on a moving vehicle the deck you see
+    /// and the deck the raycast hits are up to a physics tick apart.
+    ///
+    /// Piece placement cares about the rendered pose: the ghost is judged by eye against the
+    /// rendered deck, and <see cref="VehiclePiecesController.AddNewPiece(ZNetView)"/> converts
+    /// the placed world position to a local offset through the container's Transform. Leaving
+    /// the hit in the simulated frame bakes the interpolation lag (which scales with vehicle
+    /// speed) into the stored offset.
+    /// </summary>
+    private static void MapHitToRenderedPose(Rigidbody? body, ref Vector3 point,
+      ref Vector3 normal)
+    {
+      if (body == null || body.interpolation == RigidbodyInterpolation.None) return;
+
+      var bodyTransform = body.transform;
+      var simulatedPosition = body.position;
+      var simulatedRotation = body.rotation;
+      var renderedPosition = bodyTransform.position;
+      var renderedRotation = bodyTransform.rotation;
+
+      // Nothing to correct when the transform has already caught up with the simulation.
+      if (simulatedPosition == renderedPosition &&
+          simulatedRotation == renderedRotation) return;
+
+      var inverseSimulated = Quaternion.Inverse(simulatedRotation);
+      var localPoint = inverseSimulated * (point - simulatedPosition);
+      var localNormal = inverseSimulated * normal;
+
+      point = renderedPosition + renderedRotation * localPoint;
+      normal = renderedRotation * localNormal;
+    }
+
+    /// <summary>
+    /// Replacement for the vanilla placement raycast.
+    ///
+    /// The only thing vanilla gets wrong for vehicles is that it rejects any hit whose
+    /// collider has an attachedRigidbody, which is every vehicle piece (they all hang off the
+    /// kinematic pieces-container body). Everything else about the vanilla cast - most
+    /// importantly that it originates at the camera, because the crosshair *is* the camera's
+    /// centre - must be preserved, otherwise the ghost stops tracking the crosshair.
+    /// </summary>
+    public static void HandleGameObjectRayCast(
       LayerMask layerMask,
       Player __instance, ref bool __result,
       ref Vector3 point,
@@ -312,43 +365,71 @@
       var start = gameCameraTransform.position;
       var end = gameCameraTransform.forward;
 
-      if (vehicleTransform != null)
+      var maxPlaceDistance = __instance.m_maxPlaceDistance;
+      if ((bool)__instance.m_placementGhost)
       {
-        var localPos = vehicleTransform.InverseTransformPoint(__instance.transform
-          .position);
-        var localStart = localPos + Vector3.up * 2f;
-        var localDir = ((Character)__instance).m_lookYaw * Quaternion.Euler(
-          __instance.m_lookPitch,
-          0 - vehicleTransform.transform.rotation.eulerAngles.y +
-          PatchSharedData.YawOffset, 0);
-
-        start = vehicleTransform.TransformPoint(localStart);
-        end = vehicleTransform.rotation * localDir * Vector3.forward;
+        var ghostPiece = __instance.m_placementGhost.GetComponent<Piece>();
+        if (ghostPiece != null)
+          maxPlaceDistance += (float)ghostPiece.m_extraPlacementDistance;
       }
 
-      // allows raycast to work properly when zoomed out.
-      var distanceBetweenPlayerAndCamera = Vector3.Distance(__instance.transform.position, gameCameraTransform.position);
-      var castDistance = distanceBetweenPlayerAndCamera + 10f;
+      // The cast starts at the camera, so it has to cover the camera->player gap as well as
+      // the placement reach. The extra padding keeps the historical (more generous) vehicle
+      // build range that this patch has always allowed.
+      var distanceBetweenPlayerAndCamera = Vector3.Distance(
+        __instance.transform.position, gameCameraTransform.position);
+      var castDistance = distanceBetweenPlayerAndCamera + maxPlaceDistance + 10f;
 
-      if (Physics.Raycast(start, end, out var hitInfo, castDistance, layerMask) &&
-          (bool)hitInfo.collider)
+      var hitCount = Physics.RaycastNonAlloc(start, end, PlacementRayHits,
+        castDistance, layerMask);
+      if (hitCount <= 0) return;
+
+      var nearestDistance = float.MaxValue;
+      var hasNearest = false;
+      var nearest = default(RaycastHit);
+
+      for (var i = 0; i < hitCount; i++)
       {
-        if (!CanHitPiece(hitInfo.collider))
-        {
-          ShouldRunOriginalMethod = true;
-          return;
-        }
-
-        point = hitInfo.point;
-        normal = hitInfo.normal;
-        piece = hitInfo.collider.GetComponentInParent<Piece>();
-        heightmap = null;
-        waterSurface = null;
-        __result = true;
-
-        // Let the prefix run. This means we double up on Raycasts which is heavier on performance...
-        ShouldRunOriginalMethod = false;
+        var candidate = PlacementRayHits[i];
+        if (!(bool)candidate.collider) continue;
+        // The camera sits behind the player, so the player's own colliders are now in front
+        // of the ray. Vanilla never saw them (it bails on any rigidbody hit) so skip them
+        // instead of treating the player as a blocker.
+        if (IsLocalPlayerCollider(candidate.collider)) continue;
+        if (candidate.distance >= nearestDistance) continue;
+        nearestDistance = candidate.distance;
+        nearest = candidate;
+        hasNearest = true;
       }
+
+      if (!hasNearest) return;
+
+      // Anything that is not a vehicle piece is vanilla's problem - let the original method
+      // run so terrain, water and private-area handling stay untouched.
+      if (!CanHitPiece(nearest.collider)) return;
+
+      point = nearest.point;
+      normal = nearest.normal;
+      MapHitToRenderedPose(nearest.collider.attachedRigidbody, ref point, ref normal);
+
+      piece = nearest.collider.GetComponentInParent<Piece>();
+      // A vehicle piece is never terrain and never the water surface.
+      heightmap = null;
+      waterSurface = null;
+      __result = true;
+
+      ShouldRunOriginalMethod = false;
+    }
+
+    private static readonly RaycastHit[] PlacementRayHits = new RaycastHit[64];
+
+    private static bool IsLocalPlayerCollider(Collider collider)
+    {
+      var localPlayer = Player.m_localPlayer;
+      if (localPlayer == null) return false;
+      if (collider == localPlayer.m_collider) return true;
+      var body = collider.attachedRigidbody;
+      return (bool)body && body.gameObject == localPlayer.gameObject;
     }
 
     [HarmonyPatch(typeof(Player), "PieceRayTest")]
@@ -359,11 +440,10 @@
       ref Collider waterSurface,
       bool water)
     {
-      var layerMask = __instance.m_placeRayMask;
+      var layerMask =
+        water ? __instance.m_placeWaterRayMask : __instance.m_placeRayMask;
 
-      var raycastPieceActivator = PieceActivatorHelpers.GetRaycastPieceActivator(__instance.transform);
-
-      HandleGameObjectRayCast(raycastPieceActivator?.transform, layerMask, __instance,
+      HandleGameObjectRayCast(layerMask, __instance,
         ref __result, ref point,
         ref normal, ref piece,
         ref heightmap,
