@@ -518,25 +518,136 @@
     }
 
     /// <summary>
+    /// The one place that defines what MBPosition/MBRotationVec mean for a persistent
+    /// vehicle piece: the piece's placement relative to the pieces-container origin.
+    ///
+    /// <see cref="BasePieceActivatorComponent.FinalizeTransform"/> restores a piece purely
+    /// from these two values, so any drift between them and the live transform is invisible
+    /// until the piece is destroyed and re-activated (leaving and returning to the vehicle,
+    /// teleporting, relogging) - at which point the piece jumps to the stale offset.
+    /// </summary>
+    /// <returns>false when the piece has no ZDO to write to.</returns>
+    public bool SyncPieceOffsetToZdo(ZNetView? netView)
+    {
+      if (netView == null) return false;
+      var zdo = netView.GetZDO();
+      if (zdo == null || !zdo.IsValid()) return false;
+      if (!netView.m_persistent) return false;
+
+      var pieceTransform = netView.transform;
+      zdo.Set(VehicleZdoVars.MBPositionHash,
+        transform.InverseTransformPoint(pieceTransform.position));
+      zdo.Set(VehicleZdoVars.MBRotationVecHash,
+        pieceTransform.localRotation.eulerAngles);
+      return true;
+    }
+
+    /// <summary>
+    /// True only for pieces parented straight to the pieces container, which is the case
+    /// where the stored offset and the live localPosition describe the same thing and the
+    /// transform can therefore be treated as authoritative.
+    ///
+    /// TrySetPieceToParent deliberately puts some pieces elsewhere - rams onto the manager
+    /// transform, sails onto a mast's rotation transform, swivel children onto the swivel -
+    /// so for those the transform is not a valid source for a container-local offset.
+    /// </summary>
+    private bool IsContainerLocalPiece(ZNetView netView)
+    {
+      return netView.transform.parent == transform;
+    }
+
+    /// <summary>
+    /// True for pieces whose stored offset is relative to a swivel rather than to the
+    /// vehicle origin. <see cref="BasePiecesController.TryApplyLocalOriginShift"/> leaves
+    /// their transforms alone, so their offsets must be left alone too. Read from the ZDO
+    /// so it also holds for swivel children that are not currently instantiated.
+    /// </summary>
+    private static bool IsSwivelChildZdo(ZDO zdo)
+    {
+      return zdo.GetInt(VehicleZdoVars.SwivelParentId) != 0;
+    }
+
+    /// <summary>
     /// Handles vehicle shift persistence.
+    ///
+    /// <see cref="BasePiecesController.TryApplyLocalOriginShift"/> has just moved every live
+    /// piece transform by -offset and moved the vehicle bodies to compensate. The stored
+    /// offsets have to follow, otherwise the next re-activation restores pieces to
+    /// pre-shift offsets against a post-shift origin.
+    ///
+    /// Container-local live pieces are re-derived from their transforms rather than
+    /// decremented. The transform is the authoritative record of what the player can see,
+    /// and re-deriving is self-healing: it cannot drift out of step with the
+    /// transform-shift pass the way a blind subtraction can when the two passes disagree
+    /// about which pieces they cover. Everything else keeps the incremental subtraction,
+    /// except swivel children, whose transforms the shift pass leaves alone.
     /// </summary>
     /// TODO determine if this can just be set by host eg if zdos can be trusted.
-    /// 
+    ///
     /// <param name="offset"></param>
     public void OnVehicleCenterShift(Vector3 offset)
     {
       if (offset == Vector3.zero) return;
+      if (Manager == null) return;
+
+      var resynced = new HashSet<ZDO>();
+
+      foreach (var nv in m_pieces)
+      {
+        if (nv == null) continue;
+        if (!IsContainerLocalPiece(nv)) continue;
+        if (!SyncPieceOffsetToZdo(nv)) continue;
+        var zdo = nv.GetZDO();
+        if (zdo != null) resynced.Add(zdo);
+      }
+
       if (!m_allPieces.TryGetValue(Manager.PersistentZdoId, out var zdoPieces)) return;
+
       foreach (var zdo in zdoPieces)
       {
+        if (zdo == null || !zdo.IsValid()) continue;
+        // Already re-derived from a live transform above.
+        if (resynced.Contains(zdo)) continue;
+        // Shifting a swivel child's offset would move it out from under its swivel on the
+        // next activation, because the transform-shift pass skipped it.
+        if (IsSwivelChildZdo(zdo)) continue;
+
         var previousHash = zdo.GetVec3(VehicleZdoVars.MBPositionHash, Vector3.zero);
         zdo.Set(VehicleZdoVars.MBPositionHash, previousHash - offset);
+      }
+    }
+
+    /// <summary>
+    /// Snapshots every live piece's placement into its ZDO.
+    ///
+    /// Called just before the vehicle unloads so that whatever the player last saw is what
+    /// gets restored, regardless of whether some earlier bookkeeping step failed to keep
+    /// MBPosition in step with the transform. Idempotent in the healthy case, because
+    /// FinalizeTransform derives the transform from these same values.
+    ///
+    /// Limited to container-local pieces - see <see cref="IsContainerLocalPiece"/>.
+    /// </summary>
+    public void SyncAllPieceOffsetsToZdos()
+    {
+      if (Manager == null) return;
+
+      foreach (var nv in m_pieces)
+      {
+        if (nv == null) continue;
+        if (!IsContainerLocalPiece(nv)) continue;
+        SyncPieceOffsetToZdo(nv);
       }
     }
 
     public override void OnDisable()
     {
       OnLocalOriginShiftApplied -= OnVehicleCenterShift;
+
+      // Persist where the pieces actually are before they are destroyed. Without this the
+      // vehicle is restored from whatever MBPosition happens to hold, so any offset that
+      // drifted out of step with its transform during the session becomes visible as a
+      // skewed build the moment the player returns.
+      SyncAllPieceOffsetsToZdos();
 
       // hopefully it can be run otherwise it needs to be patched so it can run just before objects are being cleaned up in a zone.
       ForceUpdateAllPiecePositions();
@@ -3450,10 +3561,7 @@
           LoggerProvider.LogError(
             "Potential update error detected: Ship parent ZDO is invalid but added a Piece to the ship");
 
-        netView.m_zdo.Set(VehicleZdoVars.MBRotationVecHash,
-          netView.transform.localRotation.eulerAngles);
-        netView.m_zdo.Set(VehicleZdoVars.MBPositionHash,
-          transform.InverseTransformPoint(netView.transform.position));
+        SyncPieceOffsetToZdo(netView);
       }
 
       if (Mod_PieceOverlapConfig.PieceOverlap_Enabled.Value)
@@ -3989,8 +4097,7 @@
     }
 
     /// <summary>
-    /// Recenters the vehicle's ZDO origin to the geometric hull center after every
-    /// convex hull rebuild.
+    /// Recenters the vehicle origin onto the geometric hull center.
     ///
     /// WHY: MBPositionHash offsets are stored as localPosition relative to the
     /// VehiclePiecesController transform origin. Asymmetric building drifts that
@@ -3998,17 +4105,15 @@
     /// stamps piece ZDOs to vehiclePosition (= drifted origin), placing them in
     /// the wrong zone sector where the server culls them.
     ///
-    /// WHY NOT touch rigidbody/kinematic state:
-    /// This fires from OnConvexHullGenerated which can happen while sailing (player
-    /// adds a piece mid-voyage). Making the body kinematic or zeroing velocity would
-    /// violently interrupt movement. Only ZDO records are updated — the transform
-    /// hierarchy is never touched.
+    /// HOW: delegates to <see cref="BasePiecesController.TryRecenterPiecesToBounds"/>,
+    /// the same path the automatic per-rebuild recentering uses. It shifts the piece
+    /// transforms and moves both bodies to compensate, then fires
+    /// <see cref="OnVehicleCenterShift"/> to bring the stored offsets along.
     ///
-    /// HOW: Pieces are children of the rigidbody transform so their localPosition
-    /// is always accurate relative to the body origin. We subtract the XZ geometric
-    /// center offset from each localPosition to get the new MBPositionHash relative
-    /// to the new center, then shift the root ZDO world position by the same amount.
-    /// Y excluded — intentional (buoyancy / terrain).
+    /// This used to rewrite MBPositionHash and the root ZDO position *without* touching
+    /// the transform hierarchy, which left every stored offset describing an origin the
+    /// vehicle body was not actually at. That is invisible until a piece re-activates,
+    /// then the whole build lands one shift away from where it was built.
     /// </summary>
     private IEnumerator RecenterVehicleOriginCoroutine()
     {
@@ -4022,40 +4127,12 @@
         if (!m_nview.IsOwner()) yield break;
         if (MovementController == null || MovementController.m_body == null) yield break;
 
-        // Geometric center of all hull pieces in VehiclePiecesController local space.
-        var localCenter = convexHullComponent.GetConvexHullBounds(true).center;
+        var bounds = convexHullComponent.GetConvexHullBounds(true);
+        var didShift = TryRecenterPiecesToBounds(bounds);
 
-        // Only correct X/Z — Y is intentional (buoyancy / terrain height).
-        var xzShift = new Vector3(localCenter.x, 0f, localCenter.z);
-
-        const float recenterThreshold = 2f; // metres
-        if (xzShift.magnitude < recenterThreshold) yield break;
-
-        LoggerProvider.LogDebug(
-          $"RecenterVehicleOrigin: XZ drift {xzShift.magnitude:F1} m — recentering ZDO offsets (vehicle keeps moving).");
-
-        // Re-snapshot each piece's localPosition minus the XZ drift into MBPositionHash.
-        // localPosition is always accurate since pieces are parented to the body.
-        // The offset is now relative to the new geometric center.
-        foreach (var nv in m_pieces)
-        {
-          if (!nv) continue;
-          var zdo = nv.GetZDO();
-          if (zdo == null) continue;
-          zdo.Set(VehicleZdoVars.MBPositionHash, nv.transform.localPosition - xzShift);
-        }
-
-        // Shift the root ZDO's recorded world position to the new logical center.
-        // The body is NOT moved — only the ZDO's stored position changes.
-        // Next time ForceUpdateAllPiecePositions runs it will use this corrected origin.
-        var worldShift = transform.TransformDirection(xzShift);
-        var newWorldOrigin = MovementController.m_body.position + worldShift;
-        var rootZdo = m_nview.GetZDO();
-        rootZdo.SetPosition(newWorldOrigin);
-        rootZdo.SetSector(ZoneSystem.GetSectorIndex(newWorldOrigin));
-
-        LoggerProvider.LogDebug(
-          $"RecenterVehicleOrigin: done. New ZDO world origin: {newWorldOrigin}");
+        LoggerProvider.LogDebug(didShift
+          ? "RecenterVehicleOrigin: done."
+          : "RecenterVehicleOrigin: already centered, nothing to do.");
       }
       finally
       {
