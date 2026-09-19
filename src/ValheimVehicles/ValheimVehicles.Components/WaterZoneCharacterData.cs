@@ -61,12 +61,33 @@
     public WaterZoneCharacterData(Character characterInstance,
       WaterZoneController? waterZoneController = null)
     {
-      waterZoneController = waterZoneController;
       character = characterInstance;
       zdoId = character.GetZDOID();
       OnboardController = null;
-      controllerZdoId =
-        waterZoneController.GetComponent<ZNetView>().GetZDO().m_uid;
+      SetWaterZoneController(waterZoneController);
+    }
+
+    /// <summary>
+    /// Points this record at the mask the character is currently inside.
+    ///
+    /// Previously the constructor did `waterZoneController = waterZoneController`, a
+    /// self-assignment that left the field null, and then dereferenced the same nullable
+    /// parameter three deep for the id. A mask whose ZNetView had no ZDO therefore threw
+    /// out of OnTriggerEnter before the character was ever registered, silently leaving
+    /// them outside the water-free zone.
+    /// </summary>
+    public void SetWaterZoneController(WaterZoneController? controller)
+    {
+      WaterZoneController = controller;
+
+      var controllerNetView = controller != null
+        ? controller.GetComponent<ZNetView>()
+        : null;
+      var controllerZdo = controllerNetView != null
+        ? controllerNetView.GetZDO()
+        : null;
+
+      controllerZdoId = controllerZdo?.m_uid ?? ZDOID.None;
     }
 
     public WaterZoneCharacterData(Character characterInstance,

@@ -106,7 +106,36 @@ public class WaterZoneController : CreativeModeColliderComponent
     InitMaskFromNetview();
 
     _hasInitializedMask = true;
+
+    // OnTriggerEnter only fires on a transition. A character already standing where this
+    // mask just appeared - a mask placed around them, or one whose ZDO arrived late and so
+    // rejected the enter callback - would never be registered otherwise.
+    RegisterCharactersAlreadyInside();
+
     return true;
+  }
+
+  /// <summary>
+  /// Picks up characters that are inside the mask volume at the moment it becomes usable.
+  /// </summary>
+  private void RegisterCharactersAlreadyInside()
+  {
+    if (collider == null) collider = GetComponent<BoxCollider>();
+    if (collider == null) return;
+
+    var colliderTransform = collider.transform;
+    var overlaps = Physics.OverlapBox(
+      colliderTransform.TransformPoint(collider.center),
+      Vector3.Scale(collider.size, colliderTransform.lossyScale) * 0.5f,
+      colliderTransform.rotation,
+      LayerHelpers.CharacterLayerMask,
+      QueryTriggerInteraction.Collide);
+
+    foreach (var overlap in overlaps)
+    {
+      if (overlap == null) continue;
+      OnTriggerEnter(overlap);
+    }
   }
 
   private static bool IsInWaterFreeZone(Character character)
@@ -200,17 +229,55 @@ public class WaterZoneController : CreativeModeColliderComponent
   private new void OnDestroy()
   {
     base.OnDestroy();
+    // Deleting a mask the player is standing in must hand them back to whatever other
+    // mask still contains them, or drop them out of the zone entirely. Without this the
+    // character keeps a record pointing at a destroyed controller.
+    ReleaseAllCharacters();
     Instances.Remove(instanceZdoid);
   }
+
+  /// <summary>
+  /// character ZDOID -> every mask that currently contains them.
+  ///
+  /// A character can be inside several masks at once - stacked volumes sharing a seam, or
+  /// overlapping ones - so the zone is only left after the last of them has been exited.
+  /// Tracking a single mask per character meant crossing a seam or deleting one of a pair
+  /// could strand the character with a binding to a mask they are no longer in.
+  /// </summary>
+  private static readonly Dictionary<ZDOID, HashSet<ZDOID>>
+    CharacterMaskOccupancy = new();
 
   public void OnTriggerEnter(Collider collider)
   {
     var character = collider.GetComponent<Character>();
     if (character == null) return;
+    if (instanceZdoid == ZDOID.None) return;
+
+    // Character.GetZDOID() dereferences m_nview.GetZDO() unguarded. A normal trigger
+    // callback happens long after a character has settled, but the overlap sweep below
+    // runs while the zone is still streaming in, where a half-built character is
+    // reachable. Skip those rather than throwing out of Start().
+    if (character.m_nview == null || character.m_nview.GetZDO() == null) return;
+
     var characterZdoid = character.GetZDOID();
 
-    // we do not need to keep transitioning the player between areas. This avoids an exit/entry call continuously fighting for ownership
-    if (WaterZoneCharacterData.ContainsKey(characterZdoid)) return;
+    if (!CharacterMaskOccupancy.TryGetValue(characterZdoid,
+          out var occupiedMasks))
+    {
+      occupiedMasks = [];
+      CharacterMaskOccupancy[characterZdoid] = occupiedMasks;
+    }
+
+    occupiedMasks.Add(instanceZdoid);
+
+    if (WaterZoneCharacterData.TryGetValue(characterZdoid, out var existing))
+    {
+      // Adopt the character if their current record points at a mask that has since been
+      // destroyed, otherwise leave the existing binding alone.
+      if (existing.WaterZoneController == null)
+        existing.SetWaterZoneController(this);
+      return;
+    }
 
     WaterZoneCharacterData.Add(characterZdoid,
       new WaterZoneCharacterData(character, this));
@@ -221,13 +288,48 @@ public class WaterZoneController : CreativeModeColliderComponent
     var character = collider.GetComponent<Character>();
     if (character == null) return;
 
-    if (!WaterZoneCharacterData.TryGetValue(instanceZdoid, out var data))
-      return;
+    // NOTE: this used to key the character dictionary by instanceZdoid - this mask's own
+    // id - so the lookup never matched and nothing was ever removed on exit.
+    ReleaseCharacter(character.GetZDOID());
+  }
 
-    // only removes the instance associated with it.
-    if (data.controllerZdoId != instanceZdoid &&
-        Instances.ContainsKey(instanceZdoid)) return;
-    WaterZoneCharacterData.Remove(instanceZdoid);
+  /// <summary>
+  /// Drops this mask from the character's occupancy set. Their water zone record is only
+  /// cleared once they are inside no masks at all; if other masks still contain them and
+  /// the record pointed at this one, it is re-pointed at one of the survivors.
+  /// </summary>
+  private void ReleaseCharacter(ZDOID characterZdoid)
+  {
+    if (!CharacterMaskOccupancy.TryGetValue(characterZdoid,
+          out var occupiedMasks)) return;
+
+    occupiedMasks.Remove(instanceZdoid);
+
+    if (occupiedMasks.Count == 0)
+    {
+      CharacterMaskOccupancy.Remove(characterZdoid);
+      WaterZoneCharacterData.Remove(characterZdoid);
+      return;
+    }
+
+    if (!WaterZoneCharacterData.TryGetValue(characterZdoid, out var data) ||
+        data.controllerZdoId != instanceZdoid) return;
+
+    foreach (var remainingMask in occupiedMasks)
+    {
+      if (!Instances.TryGetValue(remainingMask, out var controller) ||
+          controller == null) continue;
+      data.SetWaterZoneController(controller);
+      return;
+    }
+  }
+
+  private void ReleaseAllCharacters()
+  {
+    if (instanceZdoid == ZDOID.None) return;
+
+    foreach (var characterZdoid in CharacterMaskOccupancy.Keys.ToList())
+      ReleaseCharacter(characterZdoid);
   }
 
   public static void OnToggleEditMode(bool isDebug)
@@ -366,7 +468,10 @@ public class WaterZoneController : CreativeModeColliderComponent
     var meshFilter = GetComponent<MeshFilter>();
     collider = GetComponent<BoxCollider>();
     collider.isTrigger = true;
-    collider.includeLayers = LayerHelpers.CharacterLayer;
+    // CharacterLayer is a layer index, not a bitmask. Assigning it here included whatever
+    // layers happened to match the index's bit pattern instead of the character layers,
+    // leaving character detection at the mercy of the project's collision matrix.
+    collider.includeLayers = LayerHelpers.CharacterLayerMask;
 
     var primitive = GameObject.CreatePrimitive(primitiveType);
     var primitiveMeshFilter = primitive.GetComponent<MeshFilter>();

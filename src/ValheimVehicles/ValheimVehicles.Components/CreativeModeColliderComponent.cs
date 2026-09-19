@@ -33,8 +33,9 @@ public class CreativeModeColliderComponent : MonoBehaviour
     }
 
     Instances.Add(this);
-    SetMode(IsEditMode);
+    // Must be resolved before SetMode, which no-ops on a null collider.
     collider = GetComponent<BoxCollider>();
+    SetMode(IsEditMode);
   }
 
   internal void OnDestroy()
@@ -44,12 +45,20 @@ public class CreativeModeColliderComponent : MonoBehaviour
 
   /// <summary>
   /// Enables the box collider which allows for editing the watermask, otherwise the user will not be able to interact with box/delete it.
+  ///
+  /// The character layers are always kept collidable. This collider is a trigger whose
+  /// whole purpose is to notice characters entering the zone, and PhysicalLayerMask
+  /// contains "character" - excluding it switched the water zone off for every mask the
+  /// moment edit mode was toggled, with nothing to ever switch it back on.
   /// </summary>
-  /// <param name="val"></param>
-  public void SetMode(bool val)
+  /// <param name="isEditMode"></param>
+  public void SetMode(bool isEditMode)
   {
     if (collider == null) return;
-    collider.excludeLayers = LayerHelpers.PhysicalLayerMask;
+
+    collider.excludeLayers = isEditMode
+      ? LayerHelpers.PhysicalLayerMask.value & ~LayerHelpers.CharacterLayerMask
+      : 0;
   }
 
   public virtual void OnToggleEditMode()
