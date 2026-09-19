@@ -241,6 +241,12 @@ public class CustomMeshCreatorComponent : MonoBehaviour
     var meshComponent = Instantiate(prefabToCreate, meshPosition,
       rotation);
 
+    // Size the instance up front rather than waiting for WaterZoneController.Start().
+    // Leaving it at the prefab's 1m cube until end of frame is what the mask falls back
+    // to whenever the stored size cannot be read, so there should be no window where an
+    // un-sized mask is the live state.
+    meshComponent.transform.localScale = localBounds.size;
+
     if (transform.parent != null)
     {
       meshComponent.transform.SetParent(transform.parent);
@@ -259,6 +265,11 @@ public class CustomMeshCreatorComponent : MonoBehaviour
       zdo.SetRotation(transform.rotation);
       zdo.Set(VehicleZdoVars.CustomMeshId, (int)selectedCreatorType);
       zdo.Set(VehicleZdoVars.CustomMeshScale, localBounds.size);
+      // Also record the size under the engine's own scale key. ZNetView.Awake restores
+      // this before any of our components run (the prefab sets m_syncInitialScale), so
+      // the mask comes back the right size even if our own key is unreadable.
+      // ZNetView.Awake already wrote the pre-scale value here, so this must overwrite it.
+      zdo.Set(ZDOVars.s_scaleHash, localBounds.size);
       zdo.Set(VehicleZdoVars.CustomMeshPrimitiveType,
         (int)WaterConfig.DEBUG_WaterDisplacementMeshPrimitive.Value);
 

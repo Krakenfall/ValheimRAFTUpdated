@@ -49,22 +49,64 @@ public class WaterZoneController : CreativeModeColliderComponent
     _onboardController = GetComponentInParent<VehicleOnboardController>();
   }
 
+  private bool _hasInitializedMask;
+  private Coroutine? _pendingInitCoroutine;
+
   public void Start()
   {
     if (ZNetView.m_forceDisableInit) return;
 
-    if (netView == null) netView = GetComponent<ZNetView>();
-
-    if (netView != null)
-    {
-      instanceZdoid = netView.GetZDO().m_uid;
-      if (!Instances.ContainsKey(instanceZdoid))
-        Instances.Add(instanceZdoid, this);
-    }
-
     if (_onboardController) zoneType = WaterZoneControllerType.Vehicle;
 
+    if (TryInitializeMask()) return;
+
+    // Start() only ever fires once, so a ZDO that is not ready yet would leave the mask
+    // stuck at its prefab scale - a 1m cube - for the rest of its lifetime. Retry instead.
+    _pendingInitCoroutine ??= StartCoroutine(WaitForZdoThenInitialize());
+  }
+
+  private System.Collections.IEnumerator WaitForZdoThenInitialize()
+  {
+    var attempts = 0;
+    // ~10s at 50hz. Generous enough to outlast zone streaming, bounded so a mask whose
+    // ZDO never arrives cannot spin for the whole session.
+    while (attempts < 500 && !_hasInitializedMask)
+    {
+      attempts++;
+      yield return new WaitForFixedUpdate();
+      if (TryInitializeMask()) break;
+    }
+
+    _pendingInitCoroutine = null;
+
+    if (!_hasInitializedMask)
+      Logger.LogWarning(
+        $"Water mask {name} never received a valid ZDO, so its size could not be restored.");
+  }
+
+  /// <summary>
+  /// Registers the instance and applies the stored mask volume.
+  /// </summary>
+  /// <returns>true once the mask has been sized from its ZDO.</returns>
+  private bool TryInitializeMask()
+  {
+    if (_hasInitializedMask) return true;
+    if (ZNetView.m_forceDisableInit) return false;
+
+    if (netView == null) netView = GetComponent<ZNetView>();
+    // Guarded deliberately: this used to dereference GetZDO() directly, so a not-yet-ready
+    // ZDO threw out of Start() before the mask was ever sized.
+    var zdo = netView != null ? netView.GetZDO() : null;
+    if (zdo == null) return false;
+
+    instanceZdoid = zdo.m_uid;
+    if (!Instances.ContainsKey(instanceZdoid))
+      Instances.Add(instanceZdoid, this);
+
     InitMaskFromNetview();
+
+    _hasInitializedMask = true;
+    return true;
   }
 
   private static bool IsInWaterFreeZone(Character character)
@@ -253,13 +295,67 @@ public class WaterZoneController : CreativeModeColliderComponent
     return (PrimitiveType)primitiveType;
   }
 
+  /// <summary>
+  /// ZDO has no "does this key exist" API, so probe it with two different defaults.
+  /// They can only agree when the key is actually present.
+  ///
+  /// This matters because a missing size and a stored size of zero mean opposite things:
+  /// a stored zero is a degenerate mask that should be removed, while a missing key must
+  /// never be treated as a real size - doing so is what collapses a mask into a 1m cube.
+  /// </summary>
+  private static bool TryGetStoredSize(ZDO zdo, out Vector3 size)
+  {
+    size = zdo.GetVec3(VehicleZdoVars.CustomMeshScale, Vector3.zero);
+    return size == zdo.GetVec3(VehicleZdoVars.CustomMeshScale, Vector3.one);
+  }
+
+  /// <summary>
+  /// Resolves the volume this mask should occupy, in priority order:
+  ///
+  /// 1. The mod's own stored size.
+  /// 2. The scale ZNetView already restored from the engine's own scale key during Awake
+  ///    (see m_syncInitialScale on the prefab). This is the safety net for masks whose
+  ///    stored size went missing - previously that case silently fell through to
+  ///    <see cref="defaultScale"/> and shrank the mask to a 1m cube on load.
+  /// 3. <see cref="defaultScale"/>, which test prefabs set explicitly.
+  /// </summary>
+  private bool TryResolveMaskSize(ZDO zdo, out Vector3 size)
+  {
+    if (TryGetStoredSize(zdo, out size))
+    {
+      if (size == Vector3.zero) return false;
+
+      // Mirror the size into the engine's scale key so ZNetView.Awake can restore it
+      // directly next load, without depending on this component running at all.
+      if (netView != null && netView.IsOwner() &&
+          zdo.GetVec3(ZDOVars.s_scaleHash, Vector3.zero) != size)
+      {
+        zdo.Set(ZDOVars.s_scaleHash, size);
+      }
+
+      return true;
+    }
+
+    var currentScale = transform.localScale;
+    if (currentScale != Vector3.one && currentScale != Vector3.zero)
+    {
+      Logger.LogWarning(
+        $"Water mask {name} has no stored size. Falling back to its restored scale {currentScale}.");
+      size = currentScale;
+      return true;
+    }
+
+    size = defaultScale;
+    return size != Vector3.zero;
+  }
+
   public void InitPrimitive()
   {
     var zdo = netView!.GetZDO();
     if (zdo == null) return;
     var primitiveType = GetPrimitiveTypeFromZdo(zdo);
-    var size = zdo.GetVec3(VehicleZdoVars.CustomMeshScale, defaultScale);
-    if (size == Vector3.zero)
+
+    if (!TryResolveMaskSize(zdo, out var size))
     {
       // invalid mesh, destroy it
       Destroy(gameObject);

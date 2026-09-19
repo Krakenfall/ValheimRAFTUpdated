@@ -197,7 +197,12 @@ public class CustomMeshPrefabs : RegisterPrefab<CustomMeshPrefabs>
     meshRenderer.rayTracingMode = RayTracingMode.Off;
     meshRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
 
-    PrefabRegistryHelpers.AddNetViewWithPersistence(prefab);
+    var netView = PrefabRegistryHelpers.AddNetViewWithPersistence(prefab);
+    // A water mask is a scaled volume, so its scale is part of its saved state. Letting
+    // ZNetView persist and restore it means the size survives even if the mod's own
+    // CustomMeshScale record is missing, and it is applied in Awake rather than depending
+    // on WaterZoneController.Start() having run.
+    netView.m_syncInitialScale = true;
 
     var piece = prefab.AddComponent<Piece>();
     piece.m_name = "Water Mask";
