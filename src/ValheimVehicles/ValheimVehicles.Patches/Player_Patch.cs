@@ -387,6 +387,7 @@
       var nearestDistance = float.MaxValue;
       var hasNearest = false;
       var nearest = default(RaycastHit);
+      var ignoreWaterSurface = ShouldIgnoreWaterSurface(__instance, water);
 
       for (var i = 0; i < hitCount; i++)
       {
@@ -396,6 +397,9 @@
         // of the ray. Vanilla never saw them (it bails on any rigidbody hit) so skip them
         // instead of treating the player as a blocker.
         if (IsLocalPlayerCollider(candidate.collider)) continue;
+        // See ShouldIgnoreWaterSurface - the ocean surface must not shadow a deck below it.
+        if (ignoreWaterSurface &&
+            candidate.collider.gameObject.layer == WaterLayer) continue;
         if (candidate.distance >= nearestDistance) continue;
         nearestDistance = candidate.distance;
         nearest = candidate;
@@ -422,6 +426,32 @@
     }
 
     private static readonly RaycastHit[] PlacementRayHits = new RaycastHit[64];
+
+    private static readonly int WaterLayer = LayerMask.NameToLayer("Water");
+
+    /// <summary>
+    /// True when the placement ray has to look straight through the water surface.
+    ///
+    /// Vanilla widens the placement ray mask to include the Water layer for every piece
+    /// flagged <c>m_noInWater</c> (portal, table, workbench, stool, ...) purely so it can
+    /// detect water and reject the placement. A vehicle's deck routinely sits below sea
+    /// level - that is the whole point of the hull water masks - so the ocean's water
+    /// collider is nearer to the camera than the deck and swallows the ray: the ghost pins
+    /// itself to the water line and never reaches the piece it is being placed on.
+    ///
+    /// Only the vehicle-piece scan skips the water. If nothing buildable is behind it the
+    /// vanilla cast still runs and still sees the water, so open-water placement rules are
+    /// untouched. <c>m_waterPiece</c> is excluded outright because those pieces genuinely
+    /// need the water surface hit to be considered valid.
+    /// </summary>
+    private static bool ShouldIgnoreWaterSurface(Player player, bool water)
+    {
+      if (!water) return false;
+      if (!(bool)player.m_placementGhost) return false;
+      var ghostPiece = player.m_placementGhost.GetComponent<Piece>();
+      return ghostPiece != null && ghostPiece.m_noInWater &&
+             !ghostPiece.m_waterPiece;
+    }
 
     private static bool IsLocalPlayerCollider(Collider collider)
     {
