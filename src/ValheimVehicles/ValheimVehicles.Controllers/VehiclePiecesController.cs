@@ -590,6 +590,13 @@
       if (offset == Vector3.zero) return;
       if (Manager == null) return;
 
+      // Prevent processing during initialization to avoid violent recentering issues
+      if (BaseVehicleInitState != InitializationState.Complete)
+      {
+        LoggerProvider.LogDebug("Skipping origin shift processing - vehicle not fully initialized");
+        return;
+      }
+
       var resynced = new HashSet<ZDO>();
 
       foreach (var nv in m_pieces)

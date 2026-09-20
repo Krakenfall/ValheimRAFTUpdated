@@ -8,6 +8,7 @@
   using ValheimVehicles.Components;
   using ValheimVehicles.BepInExConfig;
   using ValheimVehicles.Controllers;
+  using ValheimVehicles.Enums;
   using ValheimVehicles.Interfaces;
   using ValheimVehicles.Prefabs;
   using ValheimVehicles.Prefabs.Registry;
@@ -233,5 +234,35 @@
       var bvc = rb.GetComponent<VehiclePiecesController>();
       if (bvc) return null;
       return rb;
+    }
+    /// <summary>
+    /// Prevents WearNTear from processing vehicle pieces during sector initialization
+    /// to avoid null reference errors when the parent vehicle is not fully initialized yet.
+    /// </summary>
+    [HarmonyPatch(typeof(WearNTear), "Start")]
+    [HarmonyPostfix]
+    private static void WearNTear_Start_Postfix(WearNTear __instance)
+    {
+      // Check if this is a vehicle piece that requires protection during sector initialization
+      var parentVehicleHash = __instance.m_nview?.m_zdo?.GetInt(VehicleZdoVars.MBParentId, 0);
+      if (parentVehicleHash != 0)
+      {
+        var zdo = __instance.m_nview?.GetZDO();
+        if (zdo != null)
+        {
+          // Check if the parent vehicle is in a pending initialization state
+          var parentVehicleId = ZdoUtils.ZdoIdToId(zdo.m_uid);
+
+          // Try to get the vehicle pieces controller
+          if (VehiclePiecesController.ActiveInstances.TryGetValue(parentVehicleId, out var vehiclePiecesController))
+          {
+            // If the vehicle is not fully initialized yet, disable WearNTear to prevent null reference errors
+            if (vehiclePiecesController.BaseVehicleInitState != InitializationState.Complete)
+            {
+              __instance.enabled = false;
+            }
+          }
+        }
+      }
     }
   }
