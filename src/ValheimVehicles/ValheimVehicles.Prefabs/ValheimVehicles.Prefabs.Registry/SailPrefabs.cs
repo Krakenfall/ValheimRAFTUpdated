@@ -61,11 +61,8 @@ public class SailPrefabs : RegisterPrefab<SailPrefabs>
 
     var vikingShipMastComponent =
       vikingShipMastPrefab.AddComponent<MastComponent>();
-    vikingShipMastComponent.m_sailObject =
-      PrefabRegistryHelpers.FindVanillaMastSailObject(vikingShipMastPrefab);
-
-    vikingShipMastComponent.m_sailCloth =
-      vikingShipMastComponent.m_sailObject?.GetComponentInChildren<Cloth>();
+    PrefabRegistryHelpers.BindVanillaMastSail(vikingShipMastComponent,
+      LoadValheimAssets.vikingShipPrefab.GetComponent<Ship>());
     vikingShipMastComponent.m_allowSailRotation = true;
     vikingShipMastComponent.m_allowSailShrinking = true;
 
@@ -130,10 +127,8 @@ public class SailPrefabs : RegisterPrefab<SailPrefabs>
     PrefabRegistryHelpers.AddNetViewWithPersistence(prefab);
 
     var mastComponent = prefab.AddComponent<MastComponent>();
-    mastComponent.m_sailObject =
-      PrefabRegistryHelpers.FindVanillaMastSailObject(prefab);
-    mastComponent.m_sailCloth =
-      mastComponent.m_sailObject?.GetComponentInChildren<Cloth>();
+    PrefabRegistryHelpers.BindVanillaMastSail(mastComponent,
+      LoadValheimAssets.drakkarPrefab.GetComponent<Ship>());
     mastComponent.m_allowSailRotation = true;
     mastComponent.m_allowSailShrinking = true;
 
@@ -291,10 +286,8 @@ public class SailPrefabs : RegisterPrefab<SailPrefabs>
     var mastComponent = mbRaftMastPrefab.AddComponent<MastComponent>();
     mastComponent.m_allowSailRotation = true;
     mastComponent.m_allowSailShrinking = true;
-    mastComponent.m_sailObject =
-      PrefabRegistryHelpers.FindVanillaMastSailObject(mbRaftMastPrefab);
-    mastComponent.m_sailCloth =
-      mastComponent.m_sailObject?.GetComponentInChildren<Cloth>();
+    PrefabRegistryHelpers.BindVanillaMastSail(mastComponent,
+      LoadValheimAssets.vanillaRaftPrefab.GetComponent<Ship>());
 
     PrefabRegistryHelpers.SetWearNTear(mbRaftMastPrefab);
 
@@ -349,9 +342,7 @@ public class SailPrefabs : RegisterPrefab<SailPrefabs>
 
     // tweak the mast
     var mast = mbKarveMastPrefab.AddComponent<MastComponent>();
-    mast.m_sailObject =
-      PrefabRegistryHelpers.FindVanillaMastSailObject(mbKarveMastPrefab);
-    mast.m_sailCloth = mast.m_sailObject?.GetComponentInChildren<Cloth>();
+    PrefabRegistryHelpers.BindVanillaMastSail(mast, karve.GetComponent<Ship>());
     mast.m_allowSailShrinking = true;
     mast.m_allowSailRotation = true;
 

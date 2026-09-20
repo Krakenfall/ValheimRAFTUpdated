@@ -3149,10 +3149,24 @@
       return true;
     }
 
+    /// <summary>
+    ///   0 = fully furled, 1 = fully unfurled. Mirrors Ship.m_sailPosition and drives the
+    ///   Valheim 1.0 furl markers on vanilla masts. The legacy m_sailObject localScale below
+    ///   keeps its 0.1 floor because scale-based shrinking must never collapse to zero.
+    /// </summary>
+    private float m_sailPosition;
+
     public void UpdateSailSize(float dt)
     {
       var num = 0f;
       var speed = VehicleSpeed;
+
+      m_sailPosition = Mathf.MoveTowards(m_sailPosition, speed switch
+      {
+        Ship.Speed.Half => 0.5f,
+        Ship.Speed.Full => 1f,
+        _ => 0f
+      }, dt);
 
       switch (speed)
       {
@@ -3278,6 +3292,10 @@
         m_mastObject.transform.localRotation = Quaternion.Lerp(m_mastObject.transform.localRotation, Quaternion.identity, Time.fixedDeltaTime);
       }
 
+      // creative mode skips UpdateSail, but the sail furl amount still has to advance or
+      // vanilla masts would freeze their sails wherever the last physics tick left them.
+      UpdateSailSize(Time.fixedDeltaTime);
+
       SyncVehicleRotationDependentItems();
     }
 
@@ -3319,7 +3337,15 @@
         // toggling is optional but the scaling still has to run.
         if (mast.m_sailObject)
         {
-          if (mast.m_allowSailShrinking)
+          if (mast.HasVanillaFurlPositions)
+          {
+            // Valheim 1.0 furls vanilla sails by sliding the sail's bottom edge between
+            // marker transforms. Writing localScale on these sails instead squashes them
+            // down onto the mast base, because that is where the sail object's pivot sits.
+            mast.UpdateSailFurlPosition(
+              mast.m_allowSailShrinking ? m_sailPosition : 1f);
+          }
+          else if (mast.m_allowSailShrinking)
           {
             if (mast.m_sailCloth && mast.m_sailObject.transform.localScale !=
                 m_sailObject.transform.localScale)

@@ -7,6 +7,7 @@ using Jotunn.Extensions;
 using Jotunn.Managers;
 using UnityEngine;
 using ValheimVehicles.BepInExConfig;
+using ValheimVehicles.Components;
 using ValheimVehicles.Controllers;
 using ValheimVehicles.Helpers;
 using ValheimVehicles.Prefabs.Registry;
@@ -885,6 +886,74 @@ public abstract class PrefabRegistryHelpers
       if (child.GetComponentInChildren<SkinnedMeshRenderer>(true) == null) continue;
       return child.gameObject;
     }
+
+    return null;
+  }
+
+  // Valheim 1.0 furl rig. The sail keeps its prefab scale and the bottom edge slides between
+  // these three markers instead. Present on every vanilla mast (raft/karve/vikingship/drakkar).
+  public const string VanillaSailBottomName = "Sail_Bottom";
+  public const string VanillaSailFurledPositionName = "FurledPosition";
+  public const string VanillaSailMidFurledPositionName = "MidFurledPosition";
+  public const string VanillaSailUnfurledPositionName = "UnfurledPosition";
+  public const string MagicaClothTypeName = "MagicaCloth2.MagicaCloth";
+
+  /// <summary>
+  /// Wires a cloned vanilla mast up to its sail: resolves the sail object, the legacy
+  /// UnityEngine.Cloth (pre-1.0 only) and the Valheim 1.0 furl markers. Masts whose markers do
+  /// not resolve fall back to the legacy scale-based shrinking in the movement controller.
+  /// </summary>
+  /// <param name="mast">MastComponent added to the cloned mast prefab.</param>
+  /// <param name="sourceShip">
+  /// Vanilla ship the mast was cloned from, used to copy the MagicaCloth blend weight curve.
+  /// </param>
+  public static void BindVanillaMastSail(MastComponent mast, Ship? sourceShip)
+  {
+    var sailObject = FindVanillaMastSailObject(mast.gameObject);
+    mast.m_sailObject = sailObject;
+    mast.m_sailCloth = sailObject == null
+      ? null
+      : sailObject.GetComponentInChildren<Cloth>();
+
+    if (sailObject == null) return;
+
+    mast.m_sailBottomTransform =
+      FindDescendant(sailObject, VanillaSailBottomName);
+    mast.m_sailFurledPosition =
+      FindDescendant(sailObject, VanillaSailFurledPositionName);
+    mast.m_sailMidFurledPosition =
+      FindDescendant(sailObject, VanillaSailMidFurledPositionName);
+    mast.m_sailUnfurledPosition =
+      FindDescendant(sailObject, VanillaSailUnfurledPositionName);
+
+    mast.m_magicaSailCloth = FindMagicaCloth(sailObject);
+    mast.m_sailBlendWeightCurve = sourceShip == null
+      ? null
+      : sourceShip.m_sailBlendWeightCurve;
+
+    if (!mast.HasVanillaFurlPositions)
+      Logger.LogWarning(
+        $"Could not resolve the vanilla sail furl markers under mast <{mast.name}>. Falling back to legacy scale-based sail shrinking, which mispositions Valheim 1.0 sails.");
+  }
+
+  private static Transform? FindDescendant(GameObject root, string name)
+  {
+    foreach (var child in root.GetComponentsInChildren<Transform>(true))
+      if (child.name == name)
+        return child;
+
+    return null;
+  }
+
+  /// <summary>
+  /// Resolved by type name so the mod does not need a MagicaClothV2 assembly reference.
+  /// </summary>
+  private static Component? FindMagicaCloth(GameObject sailObject)
+  {
+    foreach (var component in sailObject.GetComponentsInChildren<Component>(true))
+      if (component != null &&
+          component.GetType().FullName == MagicaClothTypeName)
+        return component;
 
     return null;
   }

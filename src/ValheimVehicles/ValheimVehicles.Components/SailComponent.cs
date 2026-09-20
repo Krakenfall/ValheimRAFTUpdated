@@ -257,7 +257,7 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
 
     if (timer.ElapsedMilliseconds >= maxWaitTime)
     {
-      LoggerProvider.LogDev("Exiting WaitForInitialization due to timeout");
+      Logger.LogDebug("Exiting WaitForInitialization due to timeout");
       yield break;
     }
 
@@ -266,6 +266,9 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
 
     RegisterRPC();
     LoadZDO();
+
+    // Try to update sail parent after initialization is complete
+    UpdateSailParent();
   }
 
   public static Material? OverrideMaterial_VikingShipSail()
@@ -379,7 +382,7 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
     }
     catch (Exception e)
     {
-      LoggerProvider.LogDebug($"Problem occurred while attempting to destroy invalid sail \n{e}");
+      Logger.LogDebug($"Problem occurred while attempting to destroy invalid sail \n{e}");
     }
   }
 
@@ -387,7 +390,7 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
   {
     if (data == null)
     {
-      LoggerProvider.LogError("Sail data sync is corrupt.");
+      Logger.LogError("Sail data sync is corrupt.");
       return;
     }
 
@@ -453,22 +456,59 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
       sailParent = ZdoWatchController.Instance.GetGameObject(sailParentId);
     }
 
-    if (sailParent == null) yield break;
+    if (sailParent == null)
+    {
+      Logger.LogDebug($"Failed to find sail parent with ID {sailParentId} after waiting 5 seconds");
+      yield break;
+    }
 
     var parentMastComponent = sailParent.GetComponent<MastComponent>();
 
-    if (!parentMastComponent) yield break;
-    if (!parentMastComponent.m_rotationTransform) yield break;
+    if (!parentMastComponent)
+    {
+      Logger.LogDebug($"Found parent GameObject but it doesn't have a MastComponent. Parent ID: {sailParentId}");
+      yield break;
+    }
+
+    // Ensure the mast's rotation transform is properly initialized
+    if (parentMastComponent.m_rotationTransform == null)
+    {
+      Logger.LogDebug($"Parent mast has no m_rotationTransform. Attempting to find 'rotational_yard' transform.");
+      // Try to find the rotational_yard transform if it wasn't set up properly
+      parentMastComponent.m_rotationTransform = sailParent.transform.Find("rotational_yard");
+
+      if (parentMastComponent.m_rotationTransform == null)
+      {
+        Logger.LogDebug($"Could not find 'rotational_yard' transform on mast. Parent ID: {sailParentId}");
+        yield break;
+      }
+    }
 
     transform.SetParent(parentMastComponent.m_rotationTransform);
+
+    // Set position and rotation from ZDO data
     if (this.IsNetViewValid(out var netView))
     {
-      transform.localPosition = netView.GetZDO().GetVec3(SailParentPositionHash, Vector3.zero);
-      transform.localRotation = Quaternion.Euler(netView.m_zdo.GetVec3(SailParentRotationHash, transform.localRotation.eulerAngles));
+      try
+      {
+        var position = netView.GetZDO().GetVec3(SailParentPositionHash, Vector3.zero);
+        var rotation = netView.m_zdo.GetVec3(SailParentRotationHash, transform.localRotation.eulerAngles);
+
+        // Make sure we set the local position/rotation properly
+        transform.localPosition = position;
+        transform.localRotation = Quaternion.Euler(rotation);
+      }
+      catch (Exception ex)
+      {
+        Logger.LogDebug($"Error applying position/rotation from ZDO: {ex.Message}");
+        transform.localPosition = Vector3.zero;
+        transform.localRotation = Quaternion.identity;
+      }
     }
     else
     {
       transform.localPosition = Vector3.zero;
+      transform.localRotation = Quaternion.identity;
     }
   }
 
@@ -477,7 +517,19 @@ public class SailComponent : MonoBehaviour, Interactable, Hoverable, INetView
     if (!this.IsNetViewValid(out var netView)) return;
     if (sailParentRoutine.IsRunning) return;
     var sailParentId = netView.GetZDO().GetInt(SailParentIdHash);
-    if (sailParentId == 0) return;
+    if (sailParentId == 0)
+    {
+      Logger.LogDebug("Sail parent ID is 0, cannot update sail parent");
+      return;
+    }
+
+    // Log the attempt to update sail parent
+    Logger.LogDebug($"Attempting to update sail parent with ID: {sailParentId}");
+
+    // Debug logging - show current sail position before and after
+    Logger.LogDebug($"Sail position before parent update: {transform.position}");
+    Logger.LogDebug($"Sail local position before parent update: {transform.localPosition}");
+
     sailParentRoutine.Start(WaitForSailParent(sailParentId));
   }
 

@@ -93,7 +93,22 @@ public class SailCreatorComponent : MonoBehaviour
           // relative to parent rotation.
           var relativeRotation = Quaternion.Inverse(parentMastComponent.transform.rotation) * sailComponent.transform.rotation;
           zdo.Set(SailComponent.SailParentRotationHash, relativeRotation.eulerAngles);
-          sailPrefabInstance.transform.SetParent(parentMastComponent.m_rotationTransform);
+
+          // Make sure we set the parent immediately and log any issues
+          if (parentMastComponent.m_rotationTransform != null)
+          {
+            sailPrefabInstance.transform.SetParent(parentMastComponent.m_rotationTransform);
+            Logger.LogDebug($"Successfully set sail parent to mast's rotation transform");
+          }
+          else
+          {
+            Logger.LogWarning($"Could not set sail parent - mast's m_rotationTransform is null. Mast ID: {persistentId}");
+            // Fallback to direct parent if we can't find the rotational_yard
+            if (parentMastComponent.transform != null)
+            {
+              sailPrefabInstance.transform.SetParent(parentMastComponent.transform);
+            }
+          }
         }
       }
     }
