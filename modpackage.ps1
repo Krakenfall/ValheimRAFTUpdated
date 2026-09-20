@@ -9,10 +9,10 @@ $publishDir = "$PSScriptRoot\build\bin\$projectName\publish"
 if (Test-Path $publishDir) {
     Remove-Item -Path $publishDir -Recurse -Force
 }
-New-Item -Path $pluginPath -ItemType Directory | Out-Null
 
 $stagingDir = "$publishDir\staging"
 $pluginPath = "$stagingDir\BepInEx\plugins\$modName"
+New-Item -Path $pluginPath -ItemType Directory | Out-Null
 
 
 Copy-Item -Path "$buildOutputDir\*" -Destination $pluginPath -Recurse
