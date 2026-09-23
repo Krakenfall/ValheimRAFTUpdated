@@ -1,3 +1,5 @@
+# This was a fork for a temporary patch for the mod, Zolantris' ValheimRAFT Continued. The mod has officially been updated for Valheim 1.0. Consequently, I am removing all binaries and ceasing development on the mod. Please use the official mod on [NexusMods](https://www.nexusmods.com/valheim/mods/2630?tab=files) or [Thunderstore](https://thunderstore.io/c/valheim/p/zolantris/ValheimRAFT/).
+
 # ValheimMods
 
 A collection of Valheim mods maintained by zolantris. Many of these mods were
