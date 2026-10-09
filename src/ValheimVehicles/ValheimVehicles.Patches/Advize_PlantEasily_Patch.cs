@@ -13,7 +13,7 @@ public class Advize_PlantEasily_Patch
     Advize_PlantEasily.PlantEasily __instance,
     object __result)
   {
-    __result = Advize_PlantEasily.PlantEasily.Status.Healthy;
+    __result = Advize_PlantEasily.Status.Healthy;
     return false;
   }
 }
