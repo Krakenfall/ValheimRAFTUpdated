@@ -47,8 +47,13 @@ public class InvalidZNetScenePatch
   [HarmonyPrefix]
   private static bool RemoveObjects(ZNetScene __instance,
     List<ZDO> currentNearObjects,
-    List<ZDO> currentDistantObjects)
+    List<ZDO> currentDistantObjects,
+    bool __runOriginal)
   {
+    // Another prefix (e.g. ValheimVehicles) already replaced RemoveObjects this frame. Running a second
+    // removal pass would destroy vehicle hierarchies it intentionally retained, orphaning their children in m_instances.
+    if (!__runOriginal) return false;
+
     var num = (byte)(Time.frameCount & (int)byte.MaxValue);
     foreach (var currentNearObject in currentNearObjects)
       currentNearObject.TempRemoveEarmark = num;
